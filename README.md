@@ -1,6 +1,79 @@
 [![build](https://github.com/TRIQS/triqs_cpa/workflows/build/badge.svg)](https://github.com/TRIQS/triqs_cpa/actions?query=workflow%3Abuild)
 
-# triqs_cpa - A skeleton for a TRIQS application
+# triqs_cpa
+
+> Single site disorder solvers for TRIQS
+
+The triqs_cpa package includes the follwoing algorithms:
+
+- VCA: Virtual Crystal Approximation
+- ATA: Average T-matrix Approximation
+- CPA: Coherent Potential Approximation
+
+
+## Examples
+
+Simple example of a two-component semi-circular DOS:
+
+```python
+from triqs.gf import Gf, MeshReFreq
+from triqs.plot.mpl_interface import oplot, plt
+
+from triqs_cpa import SemiCircularHt, G_component, G_coherent, solve_cpa
+
+# Parameters
+mesh = MeshReFreq(-2, +2, 2001)        # Frequency mesh
+eta = 1e-2                             # Broadening for the Green's function
+conc = [0.2, 0.8]                      # Concentrations of the two components
+eps = [-0.4, +0.4]                     # On-size energies of the two components
+ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
+
+# Set up Gf and self energy
+gf = Gf(mesh=mesh, target_shape=[1, 1])
+sigma = gf.copy()
+# Solve the CPA equations
+solve_cpa(ht, sigma, conc, eps, eta=eta)
+
+# Compute the coherent and component Green's functions
+g_coh = G_coherent(ht, sigma, eta=eta)
+g_cmpt = G_component(ht, sigma, conc, eps, eta=eta, scale=True)
+
+# Plot the results
+oplot(-g_coh.imag, color="k", label="$G$")
+oplot(-g_cmpt["A"].imag, label="$G_A$")
+oplot(-g_cmpt["B"].imag, label="$G_B$")
+plt.show()
+
+```
+
+BlockGf example:
+```python
+from triqs.gf import Gf, MeshReFreq
+from triqs.plot.mpl_interface import oplot, plt
+
+from triqs_cpa import SemiCircularHt, G_coherent, solve_cpa, blockgf
+# Parameters
+mesh = MeshReFreq(-2, +2, 2001)        # Frequency mesh
+gf_struct = [("up", 1), ("dn", 1)]     # Structure of the Green's function
+eta = 1e-2                             # Broadening for the Green's function
+conc = [0.2, 0.8]                      # Concentrations of the two components
+eps = [-0.4, +0.4]                     # On-size energies of the two components
+ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
+
+# Set up Gf and self energy
+gf = blockgf(mesh, gf_struct=gf_struct)
+sigma = gf.copy()
+# Solve the CPA equations
+solve_cpa(ht, sigma, conc, eps, eta=eta)
+
+# Compute the coherent Green's functions
+g_coh = G_coherent(ht, sigma, eta=eta)
+
+# Plot the results
+oplot(-g_coh["up"].imag)
+oplot(g_coh["dn"].imag)
+plt.show()
+```
 
 Initial Setup
 -------------
@@ -47,7 +120,7 @@ Finally we repeat the replace and rename command from the initial setup.
 git commit --amend
 ```
 
-Now you can compare against the previous commit with: 
+Now you can compare against the previous commit with:
 ```bash
 git diff prev_git_hash
 ````
