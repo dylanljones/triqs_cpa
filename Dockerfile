@@ -1,6 +1,6 @@
 # See ../triqs/packaging for other options
 FROM flatironinstitute/triqs:unstable-ubuntu-clang
-ARG APPNAME=app4triqs
+ARG APPNAME=triqs_cpa
 
 # Install here missing dependencies, e.g.
 # RUN apt-get install -y python3-skimage

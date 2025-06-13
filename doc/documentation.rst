@@ -18,4 +18,4 @@ Python reference manual
    :template: autosummary_module_template.rst
    :recursive:
 
-   app4triqs
+   triqs_cpa

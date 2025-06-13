@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 where = ["python"]
 
 [project]
-name = "app4triqs"
+name = "triqs_cpa"
 version = "@PROJECT_VERSION@"
 authors = [
   { name="TRIQS", email="triqs@flatironinstitute.org" }
@@ -26,8 +26,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://triqs.github.io/app4triqs"
-"Bug Tracker" = "https://github.com/triqs/app4triqs/issues"
+"Homepage" = "https://triqs.github.io/triqs_cpa"
+"Bug Tracker" = "https://github.com/triqs/triqs_cpa/issues"
 
 # in case you want an executable hook of your app
 # [project.scripts]

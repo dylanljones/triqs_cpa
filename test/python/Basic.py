@@ -2,7 +2,7 @@
 
 import unittest
 
-import app4triqs
+import triqs_cpa
 from h5 import *
 from triqs.utility import mpi
 
