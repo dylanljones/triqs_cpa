@@ -2,13 +2,14 @@
 # Author: Dylan Jones
 # Date:   2025-06-13
 
-from typing import Sequence
+from typing import Sequence, Union
 
 import numpy as np
 from triqs.gf import BlockGf, Gf, MeshImFreq, MeshImTime, MeshReFreq, inverse
+from triqs.sumk import SumkDiscreteFromLattice
 from triqs.utility import mpi
 
-from .gf import GfLike, Onsite, _validate
+from .gf import G_coherent, GfLike, Onsite, _validate
 from .hilbert import Ht
 
 __all__ = ["solve_vca", "solve_ata", "solve_cpa"]
@@ -124,6 +125,25 @@ def solve_vca(
 
     The virtual crystal approximation (VCA) is the simplest form of the CPA.
     The self-energy is given by the average of the site self-energies weighted by the concentration.
+
+    Parameters
+    ----------
+    sigma : Gf or BlockGf
+        Starting guess for VCA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the VCA self-energy.
+    conc : (N_cmpt, ) float array_like
+        Concentration of the different components used for the average.
+    eps : (N_cmpt, [N_spin], ...) array_like or BlockGf
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    name : str, optional
+        The name of the resulting Gf object returned as self-energy.
+
+    Returns
+    -------
+    Gf or BlockGf
+        The self-consistent VCA self energy `Σ_vca`. Same as the input self energy after
+        calling the method.
     """
     is_block, conc, eps = _validate(sigma, conc, eps)
     if is_block:
@@ -141,14 +161,45 @@ def solve_vca(
 
 
 def solve_ata(
-    ht: Ht,
+    ht: Union[Ht, SumkDiscreteFromLattice],
     sigma: GfLike,
     conc: Sequence[float],
     eps: Onsite,
+    mu: float = 0.0,
     eta: float = 0.0,
     name: str = "Σ_ata",
 ) -> GfLike:
-    """Solve the CPA equations using the ATA approximation."""
+    """Solve the CPA equations using the ATA approximation.
+
+    The average T-matrix approximation (ATA) is a more advanced form of the CPA.
+
+    Parameters
+    ----------
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
+    sigma : Gf or BlockGf
+        Starting guess for ATA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the ATA self-energy.
+    conc : (N_cmpt, ) float array_like
+        Concentration of the different components used for the average.
+    eps : (N_cmpt, [N_spin], ...) array_like or BlockGf
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
+    eta : float, optional
+        Complex broadening, should be only used for real frequency Greens functions.
+    name : str, optional
+        The name of the resulting Gf object returned as self-energy.
+
+    Returns
+    -------
+     Gf or BlockGf
+        The self-consistent ATA self energy `Σ_cpa`. Same as thew input self energy after
+        calling the method.
+
+    """
     is_block, conc, eps = _validate(sigma, conc, eps)
 
     sigma_vca = sigma.copy()
@@ -161,10 +212,10 @@ def solve_ata(
     if is_block:
         for i, (name, sig) in enumerate(sigma_vca):
             sig.data[:] = np.sum(eps[:, i] * conc)
-            g0[name] << ht(sig, eta=eta)
     else:
         sigma_vca.data[:] = np.sum(eps * conc)
-        g0 << ht(sigma_vca, eta=eta)
+
+    g0 << G_coherent(ht, sigma_vca, mu=mu, eta=eta)
 
     # Average T-matrix
     def _tavrg(_g0: Gf, _eps: np.ndarray, _sigma: Gf) -> Gf:
@@ -191,10 +242,11 @@ def solve_ata(
 
 
 def solve_iter(
-    ht: Ht,
+    ht: Union[Ht, SumkDiscreteFromLattice],
     sigma: GfLike,
     conc: Sequence[float],
     eps: Onsite,
+    mu: float = 0.0,
     eta: float = 0.0,
     name: str = "Σ_cpa",
     tol: float = 1e-6,
@@ -206,8 +258,9 @@ def solve_iter(
 
     Parameters
     ----------
-    ht : Ht
-        Lattice Hilbert transformation used to calculate the coherent Green's function.
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
     sigma : Gf or BlockGf
         Starting guess for CPA self-energy. Can be a single or spin resolved Gf.
         The self energy will be overwritten with the result for the CPA self-energy.
@@ -216,6 +269,8 @@ def solve_iter(
     eps : (N_cmpt, [N_spin], ...) array_like or BlockGf
         On-site energy of the components. This can also include a local frequency
         dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
     eta : float, optional
         Complex broadening, should be only used for real frequency Greens functions.
     name : str, optional
@@ -235,7 +290,7 @@ def solve_iter(
     Returns
     -------
      Gf or BlockGf
-        The self-consistent CPA self energy `Σ_c`. Same as thew input self energy after
+        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
         calling the method.
     """
     is_block, conc, eps = _validate(sigma, conc, eps)
@@ -274,12 +329,8 @@ def solve_iter(
     for it in range(maxiter):
         # Compute average GF via the self-energy:
         # <G> = G_0(E - Σ) = 1 / (E - H_0 - Σ)
-        if is_block:
-            for s, (spin, g) in enumerate(gc):
-                g << ht(sigma[spin], eta=eta)
-        else:
-            gc << ht(sigma, eta=eta)
-
+        gc << G_coherent(ht, sigma, mu=mu, eta=eta)
+        mpi.barrier()
         # Compute non-interacting GF via Dyson equation
         g0_inv = sigma + inverse(gc)
 
@@ -291,6 +342,7 @@ def solve_iter(
         else:
             gc << _g_avrg(g0_inv, eps)
 
+        mpi.barrier()
         # Update self energy via Dyson: Σ = G_0^{-1} - <G>^{-1}
         sigma << g0_inv - inverse(gc)
 
@@ -309,6 +361,7 @@ def solve_iter(
                     mpi.report(f"CPA converged in {it + 1} iterations (Error: {diff:.10f})")
             break
         sigma_old = sigma.copy()
+        mpi.barrier()
     else:
         if verbosity > 0:
             if mpi.is_master_node():
@@ -322,10 +375,11 @@ def solve_iter(
 
 
 def solve_cpa(
-    ht: Ht,
+    ht: Union[Ht, SumkDiscreteFromLattice],
     sigma: GfLike,
     conc: Sequence[float],
     eps: Onsite,
+    mu: float = 0.0,
     eta: float = 0.0,
     name: str = "Σ_cpa",
     method: str = "iter",
@@ -335,8 +389,9 @@ def solve_cpa(
 
     Parameters
     ----------
-    ht : Ht
-        Lattice Hilbert transformation used to calculate the coherent Green's function.
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
     sigma : Gf or BlockGf
         Starting guess for CPA self-energy. Can be a single or spin resolved Gf.
         The self energy will be overwritten with the result for the CPA self-energy.
@@ -345,6 +400,8 @@ def solve_cpa(
     eps : (N_cmpt, [N_spin], ...) complex np.ndarray or BlockGf
         On-site energy of the components. This can also include a local frequency
         dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
     eta : float, optional
         Complex broadening, should be only used for real frequency Greens functions.
     name : str, optional
@@ -358,12 +415,12 @@ def solve_cpa(
     Returns
     -------
      Gf or BlockGf
-        The self-consistent CPA self energy `Σ_c`. Same as thew input self energy after
+        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
         calling the method.
     """
     supported = {"iter": solve_iter}
 
-    kwds.update(ht=ht, sigma=sigma, eps=eps, conc=conc, eta=eta, name=name)
+    kwds.update(ht=ht, sigma=sigma, eps=eps, conc=conc, mu=mu, eta=eta, name=name)
     try:
         func = supported[method.lower()]
         return func(**kwds)

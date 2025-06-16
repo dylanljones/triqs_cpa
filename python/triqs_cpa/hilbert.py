@@ -346,6 +346,7 @@ GF_FUNCS = {
 }
 
 
+# noinspection PyPep8Naming
 class PartialFunction(Base):
     """Partial function implementation of TRIQS Gf Function descriptor."""
 
@@ -360,6 +361,7 @@ class PartialFunction(Base):
         return self.function(G, *self.args, **self.kwargs)
 
 
+# noinspection PyPep8Naming
 class Partial(ABC):
     """Partial function hanlder for TRIQS Gf Function descriptors.
 
@@ -378,6 +380,7 @@ class Partial(ABC):
         return PartialFunction(self.function, **kwargs)
 
 
+# noinspection PyPep8Naming
 class Ht(Partial, ABC):
     """Base class for partial lattice Hilbert transforms using TRIQS Functions.
 
@@ -385,8 +388,6 @@ class Ht(Partial, ABC):
 
     Parameters
     ----------
-    half_bandwidth : float, optional
-        Half bandwidth of the lattice, by default 1.
     eps : float, optional
         Default on-site energy. Can be overwritten in the transform call.
     mu : float, optional
@@ -454,6 +455,7 @@ class Ht(Partial, ABC):
         return super().__call__(Sigma=Sigma, eps=eps, mu=mu, eta=eta)
 
 
+# noinspection PyPep8Naming
 class SemiCircularHt(Ht):
     r"""Hilbert transform of a semicircular density of states with self energy, i.e.
 
@@ -507,6 +509,7 @@ class SemiCircularHt(Ht):
         return G
 
 
+# noinspection PyPep8Naming
 class HilbertTransform(Ht):
     """General Hilbert transform Function descriptor using exact lattice Green's functions.
 
@@ -558,6 +561,7 @@ class HilbertTransform(Ht):
         return G
 
 
+# noinspection PyPep8Naming
 class HilbertTransformSumK(Ht):
     """General Hilbert transform Function descriptor using the TRIQS `SumkDiscreteFromLattice`.
 
@@ -583,6 +587,7 @@ class HilbertTransformSumK(Ht):
             eps = eps.data
 
         G << 0.0  # noqa
+        mpi.barrier()
 
         n_orb = G.target_shape[0]
         z_mat = np.array([z.value * np.eye(n_orb) for z in G.mesh]) + 1j * eta

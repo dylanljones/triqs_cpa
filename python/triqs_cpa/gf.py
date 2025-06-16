@@ -8,6 +8,8 @@ from typing import List, Sequence, Tuple, Union
 import numpy as np
 from numpy.typing import ArrayLike
 from triqs.gf import BlockGf, Gf
+from triqs.sumk import SumkDiscreteFromLattice
+from triqs.utility import mpi
 
 from .hilbert import Ht
 from .utility import GfLike, blockgf, toarray
@@ -172,15 +174,52 @@ def _validate(
     return is_block, conc, eps
 
 
-def G_coherent(ht: Ht, sigma: GfLike, eta: float = 0.0, name: str = "G_coh") -> GfLike:
+def sumk(
+    sk: SumkDiscreteFromLattice, sigma: Gf, eps: Onsite = 0.0, mu: float = 0.0, eta: float = 0.0
+) -> Gf:
+    """Calc Gloc with mpi parallelism."""
+    gloc = sigma.copy()
+
+    if isinstance(eps, Gf):
+        eps = eps.data
+
+    gloc << 0.0  # noqa
+    mpi.barrier()
+
+    n_orb = gloc.target_shape[0]
+    z_mat = np.array([z.value * np.eye(n_orb) for z in gloc.mesh]) + 1j * eta
+    mu_mat = mu * np.eye(n_orb)
+
+    # Loop on k points...
+    for wk, eps_k in zip(*[mpi.slice_array(A) for A in [sk.bz_weights, sk.hopping]]):
+        # numpy vectorizes the inversion automatically of shape [nw,orb,orb] over nw
+        # speed up factor 30, comparable to C++!
+        gloc.data[:] += wk * np.linalg.inv(z_mat[:] + mu_mat - eps_k - eps - sigma.data[:])
+
+    gloc << mpi.all_reduce(gloc, comm=mpi.world, op=lambda x, y: x + y)
+    mpi.barrier()
+
+    return gloc
+
+
+def G_coherent(
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    mu: float = 0.0,
+    eta: float = 0.0,
+    name: str = "G_coh",
+) -> GfLike:
     """Compute the coherent (total) Green's functions `G_h(z)`.
 
     Parameters
     ----------
-    ht : Ht
-        Lattice Hilbert transformation used to calculate the coherent Green's function.
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
     sigma : Gf or BlockGf
         The SSA self-energy as TRIQS gf.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
     eta : float, optional
         Complex broadening, should be only used for real frequency Greens functions.
     name : str, optional
@@ -195,22 +234,29 @@ def G_coherent(ht: Ht, sigma: GfLike, eta: float = 0.0, name: str = "G_coh") -> 
     gc.name = name
 
     if isinstance(sigma, Gf):
-        gc << ht(sigma, eta=eta)
+        if isinstance(ht, Ht):
+            gc << ht(sigma, mu=mu, eta=eta)
+        else:
+            gc << sumk(ht, sigma, mu=mu, eta=eta)
 
     elif isinstance(sigma, BlockGf):
-        for name, g in gc:
-            g << ht(sigma[name], eta=eta)
-
+        if isinstance(ht, Ht):
+            for name, g in gc:
+                g << ht(sigma[name], mu=mu, eta=eta)
+        else:
+            for name, g in gc:
+                g << sumk(ht, sigma[name], mu=mu, eta=eta)
     else:
         raise ValueError(f"Invalid type of `sigma`: {type(sigma)}.")
     return gc
 
 
 def G_component(
-    ht: Ht,
+    ht: Union[Ht, SumkDiscreteFromLattice],
     sigma: GfLike,
     conc: Sequence[float],
     eps: Onsite,
+    mu: float = 0.0,
     eta: float = 0.0,
     scale: bool = False,
     cmpt_names: list = None,
@@ -223,8 +269,9 @@ def G_component(
 
     Parameters
     ----------
-    ht : Ht
-        Lattice Hilbert transformation used to calculate the coherent Green's function.
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
     sigma : Gf or BlockGf
         The SSA self-energy as TRIQS gf.
     conc : (..., N_cmpt) float array_like, optional
@@ -233,6 +280,8 @@ def G_component(
     eps : (N_cmpt, [N_spin], ...) array_like
         On-site energy of the components. This can also include a local frequency
         dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
     eta : float, optional
         Complex broadening, should be only used for real frequency Greens functions.
     scale : bool, optional
@@ -262,7 +311,10 @@ def G_component(
     def _g_cmpt(_sig: Gf, _eps_i: ArrayLike, _conc_i: ArrayLike) -> Gf:
         """Compute the component Green's functions for a single Gf."""
         _g = _sig.copy()
-        _g << ht(_sig, eta=eta)
+        if isinstance(ht, Ht):
+            _g << ht(_sig, mu=mu, eta=eta)
+        else:
+            _g << sumk(ht, _sig, mu=mu, eta=eta)
         _g.data[:] = _conc_i * _g.data / (1 - _g.data * (_eps_i - _sig.data))
         return _g
 
