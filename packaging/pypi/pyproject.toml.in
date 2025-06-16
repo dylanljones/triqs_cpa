@@ -22,7 +22,8 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
-    "scipy"
+    "scipy",
+    "mpmath"
 ]
 
 [project.urls]

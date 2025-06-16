@@ -28,7 +28,7 @@ The installation instructions for this package are the same as for any TRIQS app
 
 1. Clone the latest stable version of the ``triqs_cpa`` repository:
    ```bash
-   git clone https://github.com/dylanljones/triqs_cpa triqs_cpa.src
+   git clone git@github.com:dylanljones/triqs_cpa.git triqs_cpa.src
    ```
 
 2. Create and move to a new directory where you will compile the code:
