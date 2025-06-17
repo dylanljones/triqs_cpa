@@ -1,6 +1,7 @@
-[![build](https://github.com/dylanljones/triqs_cpa/workflows/build/badge.svg)](https://github.com/TRIQS/triqs_cpa/actions?query=workflow%3Abuild)
 
 # triqs-cpa
+
+[![build](https://github.com/dylanljones/triqs_cpa/workflows/build/badge.svg)](https://github.com/TRIQS/triqs_cpa/actions?query=workflow%3Abuild)
 
 > ⚠️ **This package is currently in development!.**
 
