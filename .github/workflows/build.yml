@@ -26,7 +26,7 @@ jobs:
       - id: skip_check
         uses: fkirc/skip-duplicate-actions@v5
         with:
-          paths: '[".github/**", "python/**"]'
+          paths: '[".github/**", "python/**", "tests/**", "CMakeLists.txt"]'
 
     outputs:
       should_skip: fromJSON(steps.skip_check.outputs.should_skip)
