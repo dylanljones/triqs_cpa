@@ -621,7 +621,7 @@ def solve_cpa(
     Returns
     -------
      Gf or BlockGf
-        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
+        The self-consistent CPA self energy `Σ_cpa`. Same as the input self energy after
         calling the method.
     """
     supported = {"iter": solve_iter, "root": solve_cpa_root}
