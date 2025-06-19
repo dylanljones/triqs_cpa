@@ -2,15 +2,18 @@
 # Author: Dylan Jones
 # Date:   2025-06-13
 
+from functools import partial
 from typing import Sequence, Union
 
 import numpy as np
+from scipy import optimize
 from triqs.gf import BlockGf, Gf, MeshImFreq, MeshImTime, MeshReFreq, inverse
 from triqs.sumk import SumkDiscreteFromLattice
 from triqs.utility import mpi
 
 from .gf import G_coherent, GfLike, Onsite, _validate
 from .hilbert import Ht
+from .utility import fill_gf, toarray
 
 __all__ = ["solve_vca", "solve_ata", "solve_cpa"]
 
@@ -250,7 +253,7 @@ def solve_iter(
     eta: float = 0.0,
     name: str = "Σ_cpa",
     tol: float = 1e-6,
-    mixing: float = 1.0,
+    mixing: float = 0.5,
     maxiter: int = 1000,
     verbosity: int = 1,
 ) -> GfLike:
@@ -282,6 +285,7 @@ def solve_iter(
     mixing : float, optional
         The mixing parameter for the self-energy update. The new self-energy is
         computed as `Σ_new = (1 - mixing) * Σ_old + mixing * Σ_new`.
+        If `mixing=1` no mixing is applied. The default is `0.5`.
     maxiter : int, optional
         The maximum number of iterations, by default 1000.
     verbosity : {0, 1, 2} int, optional
@@ -374,6 +378,208 @@ def solve_iter(
     return sigma_out
 
 
+def _sigma_root(
+    x: np.ndarray,
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    conc: np.ndarray,
+    eps: np.ndarray,
+    mu: float,
+    eta: float = 0.0,
+) -> np.ndarray:
+    """Self-energy root equation r(Σ) for CPA.
+
+    The root equation is given by:
+    .. math::
+        r(Σ, z) = T(z) / (1 + T(z) * H(z-Σ)),
+
+    where .math`H` is the Hilbert transform `hilbert`.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        The self-energy to evaluate the root equation at.
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
+    sigma : Gf or BlockGf
+        The CPA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the CPA self-energy.
+        Only used to determine the shape of the output!
+    conc : (..., N_cmpt) float array_like
+        Concentration of the different components used for the average.
+    eps : (..., N_cmpt) float or complex np.ndarray
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
+    eta : float, optional
+        Complex broadening, should be only used for real frequency Greens functions.
+
+    Returns
+    -------
+    root : (...) complex np.ndarray
+        The result of r(Σ). If `r(Σ)=0`, `Σ` is the correct CPA self-energy.
+    """
+    sigma_x = sigma.copy()
+    fill_gf(sigma_x, x)
+
+    gf_0 = G_coherent(ht, sigma_x, mu=mu, eta=eta)  # Coherent Green's function
+    gf_0_arr = toarray(gf_0)
+
+    if isinstance(sigma, BlockGf):
+        items = list()
+        for i in range(len(conc)):
+            eps_eff_i = eps[:, i] - x[i, ..., np.newaxis]
+            items.append(eps_eff_i)
+        eps_eff = np.array(items)
+    else:
+        eps_eff = eps - x[..., np.newaxis]
+
+    ti = eps_eff / (1 - eps_eff * gf_0_arr[..., np.newaxis])  # T-matrix elements
+    tmat = np.sum(conc * ti, axis=-1)  # Average T-matrix
+    root = tmat / (1 + tmat * gf_0_arr)  # Self energy root
+    return root
+
+
+def _sigma_root_restricted(
+    x: np.ndarray,
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    conc: np.ndarray,
+    eps: np.ndarray,
+    mu: float,
+    eta: float = 0.0,
+) -> np.ndarray:
+    """Restricted self-energy root equation r(Σ) for CPA, where `Im Σ > 0`.
+
+    See Also
+    --------
+    _sigma_root: Self-energy root equation r(Σ) for CPA.
+    """
+    # Mask of unphysical roots Im(Σ) > 0
+    sigma_arr = toarray(sigma)
+    unphysical = sigma_arr.imag > 0
+    if np.all(~unphysical):  # All sigmas valid
+        return _sigma_root(x, ht, sigma, conc, eps, mu, eta)
+    # Store offset to valid solution and remove invalid
+    offset = sigma_arr.imag[unphysical].copy()
+    sigma_arr.imag[unphysical] = 0
+    # Compute root equation and enlarge residues
+    root = np.asarray(_sigma_root(x, ht, sigma, conc, eps, mu, eta))
+    root[unphysical] *= 1 + offset
+    # Remove unphysical roots
+    root.real[unphysical] += 1e-3 * offset * np.where(root.real[unphysical] >= 0, 1, -1)
+    root.real[unphysical] += 1e-3 * offset * np.where(root.real[unphysical] >= 0, 1, -1)
+    return root
+
+
+def solve_cpa_root(
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    conc: Sequence[float],
+    eps: Onsite,
+    mu: float = 0.0,
+    eta: float = 0.0,
+    name: str = "Σ_cpa",
+    tol: float = 1e-6,
+    maxiter: int = 1000,
+    verbosity: int = 1,
+    restricted: bool = False,
+    **root_kwargs,
+) -> GfLike:
+    """Determine the CPA self-energy by solving the root problem.
+
+    Parameters
+    ----------
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
+    sigma : Gf or BlockGf
+        Starting guess for CPA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the CPA self-energy.
+    conc : (N_cmpt, ) float array_like
+        Concentration of the different components used for the average.
+    eps : (N_cmpt, [N_spin], ...) array_like or BlockGf
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    mu : float, optional
+        The chemical potential, defaults to 0.0.
+    eta : float, optional
+        Complex broadening, should be only used for real frequency Greens functions.
+    name : str, optional
+        The name of the resulting Gf object returned as self-energy.
+    tol : float, optional
+        The tolerance for the convergence of the CPA self-energy.
+        The iteration stops when the norm between the old and new self-energy
+        .math:`|Σ_new - Σ_old|` is smaller than `tol`.
+    maxiter : int, optional
+        The maximum number of iterations, by default 1000.
+    restricted : bool, optional
+        Whether the self-energy is restricted to physical values. (default: True)
+        Note, that even if `restricted=True`, the imaginary part can get negative
+        within tolerance. This should be removed by hand if necessary.
+    verbosity : {0, 1, 2} int, optional
+        The verboisity level.
+
+    Returns
+    -------
+     Gf or BlockGf
+        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
+        calling the method.
+    """
+    is_block, conc, eps = _validate(sigma, conc, eps)
+
+    # Skip trivial solution
+    if len(conc) == 1:
+        if mpi.is_master_node():
+            mpi.report("Single component, skipping CPA!")
+        if is_block:
+            for i, (name, sig) in enumerate(sigma):
+                sig.data[:] = eps[0, i]
+        else:
+            sigma.data[:] = eps[0]
+        return sigma
+
+    if verbosity > 0:
+        if mpi.is_master_node():
+            mpi.report(f"Solving CPA problem for {len(conc)} components via root equation...")
+    # Initial coherent Green's function
+    gc = sigma.copy()
+    gc.name = "Gc"
+    gc.zero()
+
+    # Setup arguments
+    func = _sigma_root_restricted if restricted else _sigma_root
+    root_eq = partial(func, ht=ht, sigma=sigma, conc=conc, eps=eps, mu=mu, eta=eta)
+    root_kwargs["method"] = "anderson" if restricted else "broyden2"
+    root_kwargs["tol"] = tol
+    root_kwargs["options"] = {
+        "maxiter": maxiter,
+    }
+
+    # Optimize root
+    sigma0 = toarray(sigma)
+    sol = optimize.root(root_eq, x0=sigma0, **root_kwargs)
+    if not sol.success:
+        raise RuntimeError(sol.message)
+    if verbosity > 0:
+        if mpi.is_master_node():
+            niter = sol.nit if hasattr(sol, "nit") else sol.nfev
+            diff = np.max(np.abs(sol.fun))
+            mpi.report(
+                f"CPA root solver converged in {niter} function evaluations (Error: {diff:.10f})"
+            )
+    if verbosity > 1:
+        if mpi.is_master_node():
+            mpi.report(sol)
+
+    fill_gf(sigma, sol.x)
+    sigma_out = sigma.copy()
+    sigma_out.name = name
+    return sigma_out
+
+
 def solve_cpa(
     ht: Union[Ht, SumkDiscreteFromLattice],
     sigma: GfLike,
@@ -406,7 +612,7 @@ def solve_cpa(
         Complex broadening, should be only used for real frequency Greens functions.
     name : str, optional
         The name of the resulting Gf object returned as self-energy.
-    method : {"iter",} str, optional
+    method : {"iter", "root"} str, optional
         The method to use for solving the CPA root equation. Can be either 'iter' for
         the iterative algorythm or 'root' for the optimization algorythm.
     **kwds
@@ -418,7 +624,7 @@ def solve_cpa(
         The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
         calling the method.
     """
-    supported = {"iter": solve_iter}
+    supported = {"iter": solve_iter, "root": solve_cpa_root}
 
     kwds.update(ht=ht, sigma=sigma, eps=eps, conc=conc, mu=mu, eta=eta, name=name)
     try:

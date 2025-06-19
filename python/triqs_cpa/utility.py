@@ -123,3 +123,62 @@ def toarray(obj: Union[MeshLike, GfLike], dtype: DTypeLike = None) -> np.ndarray
         raise TypeError(f"Unsupported object type: {type(obj)}")
 
     return np.asarray(data, dtype=dtype)
+
+
+def gf_shape(gf: GfLike) -> Tuple[int, ...]:
+    """Return the shape of a Gf or (nested) BlockGf.
+
+    If a BlockGf is provided, the shape of the block children is checked and an error
+    is raised if the shapes do not match.
+    """
+    if isinstance(gf, Gf):
+        return gf.data.shape
+    else:
+        queue = [(gf, [])]
+        shapes = set()
+        while queue:
+            parent, shape = queue.pop(0)
+            if isinstance(parent, Gf):
+                shapes.add(tuple(shape) + parent.data.shape)
+            else:
+                for k, g in parent:
+                    queue.append((g, shape + [len(parent)]))
+
+    if len(shapes) > 1:
+        raise ValueError("Shapes of the blocks do not match!")
+    return shapes.pop()
+
+
+def fill_gf(gf: GfLike, data: np.ndarray) -> None:
+    """Fill a Gf or (nested) BlockGf with data.
+
+    Parameters
+    ----------
+    gf : Gf or BlockGf
+        The Gf or BlockGf to be filled.
+    data : np.ndarray
+        The data to be filled into the Gf. The shape must match the shape of the Gf.
+
+    """
+    # Check if the data shape matches the Gf shape
+    shape = gf_shape(gf)
+    if len(data.shape) < len(shape):
+        data = data[..., np.newaxis, np.newaxis]
+    elif len(data.shape) > len(shape) and data.shape[-1] == 1:
+        data = data[..., 0, 0]
+
+    if shape[:-1] != data.shape[:-1]:
+        raise ValueError(f"Shape {data.shape} does not match shape of Gf {shape}!")
+
+    if isinstance(gf, Gf):
+        gf.data[...] = data[...]
+    else:
+
+        def _fill_block(g: BlockGf, d: np.ndarray) -> None:
+            for k, v in zip(g.indices, d):
+                if isinstance(g[k], BlockGf):
+                    _fill_block(g[k], v)
+                else:
+                    g[k].data[...] = v[...]
+
+        _fill_block(gf, data)
