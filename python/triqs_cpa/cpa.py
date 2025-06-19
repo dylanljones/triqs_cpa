@@ -663,6 +663,8 @@ def optimize_occ(
     max_iter: int = 100,
     verbosity: int = 1,
 ) -> float:
+    """Optimize the chemical potential to match a target occupation of the coherent Gf."""
+
     def _root_eq(_mu: float) -> float:
         _g_opt = G_coherent(ht, sigma, mu=_mu, eta=eta)
         return _g_opt.total_density().real
