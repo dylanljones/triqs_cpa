@@ -19,9 +19,11 @@ Prerequisites
 Installation steps
 ------------------
 
-#. Download the source code of the latest stable version by cloning the ``TRIQS/triqs_cpa`` repository from GitHub::
+Installing from source:
 
-     $ git clone https://github.com/TRIQS/triqs_cpa triqs_cpa.src
+#. Download the source code of the latest stable version by cloning the ``triqs_cpa`` repository from GitHub::
+
+     $ git clone git@github.com:dylanljones/triqs_cpa.git triqs_cpa.src
 
 #. Create and move to a new directory where you will compile the code::
 
@@ -30,6 +32,10 @@ Installation steps
 #. Ensure that your shell contains the TRIQS environment variables by sourcing the ``triqsvars.sh`` file from your TRIQS installation::
 
      $ source path_to_triqs/share/triqs/triqsvars.sh
+
+   If you are using TRIQS from Anaconda, you can use the ``CONDA_PREFIX`` environment variable::
+
+     $ source $CONDA_PREFIX/share/triqs/triqsvars.sh
 
 #. In the build directory call cmake, including any additional custom CMake options, see below::
 

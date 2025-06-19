@@ -7,11 +7,11 @@ triqs_cpa
 
    This is the homepage of triqs_cpa |PROJECT_VERSION|.
    For changes see the :ref:`changelog page <changelog>`.
-      
+
       .. image:: _static/logo_github.png
          :width: 75%
          :align: center
-         :target: https://github.com/triqs/triqs_cpa
+         :target: https://github.com/dylanljones/triqs_cpa
 
 
 An example application using cpp2py and :ref:`TRIQS <triqslibs:welcome>`.
@@ -21,7 +21,7 @@ and the comments in the sources and headers.
 
 Learn how to use triqs_cpa in the :ref:`documentation`.
 
-    
+
 .. toctree::
    :maxdepth: 2
    :hidden:
