@@ -17,6 +17,8 @@ from .utility import fill_gf, toarray
 
 __all__ = ["solve_vca", "solve_ata", "solve_cpa"]
 
+_ROOT_ITER = 0
+
 
 def _apply_mixing(old: GfLike, new: GfLike, mixing: float = 1.0) -> GfLike:
     """Apply mixing to a Green's function object.
@@ -528,6 +530,9 @@ def solve_cpa_root(
         The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
         calling the method.
     """
+    global _ROOT_ITER
+    _ROOT_ITER = 1  # Reset root iteration counter
+
     is_block, conc, eps = _validate(sigma, conc, eps)
 
     # Skip trivial solution
@@ -549,6 +554,16 @@ def solve_cpa_root(
     gc.name = "Gc"
     gc.zero()
 
+    def callback(x: np.ndarray, f: np.ndarray) -> None:
+        """Callback function to report the current iteration."""
+        global _ROOT_ITER
+
+        if verbosity > 1:
+            if mpi.is_master_node():
+                err = np.max(np.abs(f))
+                mpi.report(f"CPA root iteration: {_ROOT_ITER} (Error: {err:.10f})")
+        _ROOT_ITER += 1
+
     # Setup arguments
     func = _sigma_root_restricted if restricted else _sigma_root
     root_eq = partial(func, ht=ht, sigma=sigma, conc=conc, eps=eps, mu=mu, eta=eta)
@@ -560,7 +575,7 @@ def solve_cpa_root(
 
     # Optimize root
     sigma0 = toarray(sigma)
-    sol = optimize.root(root_eq, x0=sigma0, **root_kwargs)
+    sol = optimize.root(root_eq, x0=sigma0, callback=callback, **root_kwargs)
     if not sol.success:
         raise RuntimeError(sol.message)
     if verbosity > 0:
