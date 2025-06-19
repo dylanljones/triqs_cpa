@@ -3,19 +3,19 @@
 # Date:   2025-06-13
 
 from functools import partial
-from typing import Sequence, Union
+from typing import Sequence, Tuple, Union
 
 import numpy as np
 from scipy import optimize
 from triqs.gf import BlockGf, Gf, MeshImFreq, MeshImTime, MeshReFreq, inverse
 from triqs.sumk import SumkDiscreteFromLattice
-from triqs.utility import mpi
+from triqs.utility import dichotomy, mpi
 
 from .gf import G_coherent, GfLike, Onsite, _validate
 from .hilbert import Ht
 from .utility import fill_gf, toarray
 
-__all__ = ["solve_vca", "solve_ata", "solve_cpa"]
+__all__ = ["solve_vca", "solve_ata", "solve_cpa", "solve_cpa_fxocc"]
 
 _ROOT_ITER = 0
 
@@ -387,7 +387,7 @@ def _sigma_root(
     conc: np.ndarray,
     eps: np.ndarray,
     mu: float,
-    eta: float = 0.0,
+    eta: float,
 ) -> np.ndarray:
     """Self-energy root equation r(Σ) for CPA.
 
@@ -413,9 +413,9 @@ def _sigma_root(
     eps : (..., N_cmpt) float or complex np.ndarray
         On-site energy of the components. This can also include a local frequency
         dependent self-energy of the component sites.
-    mu : float, optional
-        The chemical potential, defaults to 0.0.
-    eta : float, optional
+    mu : float
+        The chemical potential.
+    eta : float
         Complex broadening, should be only used for real frequency Greens functions.
 
     Returns
@@ -451,7 +451,7 @@ def _sigma_root_restricted(
     conc: np.ndarray,
     eps: np.ndarray,
     mu: float,
-    eta: float = 0.0,
+    eta: float,
 ) -> np.ndarray:
     """Restricted self-energy root equation r(Σ) for CPA, where `Im Σ > 0`.
 
@@ -629,7 +629,7 @@ def solve_cpa(
         The name of the resulting Gf object returned as self-energy.
     method : {"iter", "root"} str, optional
         The method to use for solving the CPA root equation. Can be either 'iter' for
-        the iterative algorythm or 'root' for the optimization algorythm.
+        the iterative algorithm or 'root' for the optimization algorithm.
     **kwds
         Additional keyword arguments passed to the specif solve method.
 
@@ -642,6 +642,256 @@ def solve_cpa(
     supported = {"iter": solve_iter, "root": solve_cpa_root}
 
     kwds.update(ht=ht, sigma=sigma, eps=eps, conc=conc, mu=mu, eta=eta, name=name)
+    try:
+        func = supported[method.lower()]
+        return func(**kwds)
+    except KeyError:
+        raise ValueError(f"Invalid method: {method}. Use {list(supported.keys())}!")
+
+
+# -- CPA solve methods fixxed occupation -----------------------------------------------------------
+
+
+def optimize_occ(
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    target_occ: float,
+    mu0: float = 0.0,
+    eta: float = 0.0,
+    delta_mu: float = 0.1,
+    tol: float = 1e-4,
+    max_iter: int = 100,
+    verbosity: int = 1,
+) -> float:
+    def _root_eq(_mu: float) -> float:
+        _g_opt = G_coherent(ht, sigma, mu=_mu, eta=eta)
+        return _g_opt.total_density().real
+
+    # Find the chemical potential that gives n ≈ n_target
+    mu, n_final = dichotomy.dichotomy(
+        function=_root_eq,
+        x_init=float(mu0),
+        y_value=target_occ,
+        precision_on_y=tol,
+        delta_x=delta_mu,
+        max_loops=max_iter,
+        x_name="mu",
+        y_name="occ",
+        verbosity=verbosity,
+    )
+
+    return mu
+
+
+def solve_iter_fxocc(
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    conc: Sequence[float],
+    eps: Onsite,
+    target_occ: float,
+    mu0: float = 0.0,
+    eta: float = 0.0,
+    name: str = "Σ_cpa",
+    tol: float = 1e-6,
+    mixing: float = 0.5,
+    maxiter: int = 1000,
+    verbosity: int = 1,
+) -> Tuple[float, GfLike]:
+    """Determine the CPA self-energy by an iterative solution of the CPA equations.
+
+    Parameters
+    ----------
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
+    sigma : Gf or BlockGf
+        Starting guess for CPA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the CPA self-energy.
+    conc : (N_cmpt, ) float array_like
+        Concentration of the different components used for the average.
+    eps : (N_cmpt, [N_spin], ...) array_like or BlockGf
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    target_occ : float
+        The target occupation to optimize for.
+    mu0 : float, optional
+        The initial chemical potential, defaults to 0.0.
+    eta : float, optional
+        Complex broadening, should be only used for real frequency Greens functions.
+    name : str, optional
+        The name of the resulting Gf object returned as self-energy.
+    tol : float, optional
+        The tolerance for the convergence of the CPA self-energy.
+        The iteration stops when the norm between the old and new self-energy
+        .math:`|Σ_new - Σ_old|` is smaller than `tol`.
+    mixing : float, optional
+        The mixing parameter for the self-energy update. The new self-energy is
+        computed as `Σ_new = (1 - mixing) * Σ_old + mixing * Σ_new`.
+        If `mixing=1` no mixing is applied. The default is `0.5`.
+    maxiter : int, optional
+        The maximum number of iterations, by default 1000.
+    verbosity : {0, 1, 2} int, optional
+        The verboisity level.
+
+    Returns
+    -------
+    mu : float
+        The optimized chemical potential that gives the target occupation.
+    sigma : Gf or BlockGf
+        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
+        calling the method.
+    """
+    is_block, conc, eps = _validate(sigma, conc, eps)
+    mu = mu0
+
+    # Skip trivial solution
+    if len(conc) == 1:
+        if mpi.is_master_node():
+            mpi.report("Single component, skipping CPA!")
+        if is_block:
+            for i, (name, sig) in enumerate(sigma):
+                sig.data[:] = eps[0, i]
+        else:
+            sigma.data[:] = eps[0]
+
+        # Optimize the chemical potential to match the target occupation
+        mu = optimize_occ(ht, sigma, target_occ=target_occ, mu0=mu, eta=eta)
+
+        return mu, sigma
+
+    if verbosity > 0:
+        if mpi.is_master_node():
+            mpi.report(f"Solving CPA problem for {len(conc)} components iteratively...")
+    # Initial coherent Green's function
+    gc = sigma.copy()
+    gc.name = "Gc"
+    gc.zero()
+
+    # Old self energy for convergence check
+    sigma_old = sigma.copy()
+
+    # Define avrg G method
+    def _g_avrg(_g0_inv: Gf, _eps: np.ndarray) -> Gf:
+        """Compute component and average Green's function `<G>(z) = ∑ᵢ cᵢ Gᵢ(z)`."""
+        _g_i = _g0_inv.copy()
+        _cmpts = [1 / (_g0_inv.data - _e) for _e in _eps]
+        _g_i.data[:] = np.sum([_g.data * _c for _c, _g in zip(conc, _cmpts)], axis=0)
+        return _g_i
+
+    # Begin CPA iterations
+    for it in range(maxiter):
+        # Compute average GF via the self-energy:
+        # <G> = G_0(E - Σ) = 1 / (E - H_0 - Σ)
+        gc << G_coherent(ht, sigma, mu=mu, eta=eta)
+        mpi.barrier()
+        # Compute non-interacting GF via Dyson equation
+        g0_inv = sigma + inverse(gc)
+
+        # g_i = [inverse(sigma - eps[i] + inverse(gc)) for i, c in enumerate(conc)]
+        # Compute new coherent GF: <G> = c_A G_A + c_B G_B + ...
+        if is_block:
+            for s, (spin, g) in enumerate(gc):
+                g << _g_avrg(g0_inv[spin], eps[:, s])
+        else:
+            gc << _g_avrg(g0_inv, eps)
+
+        mpi.barrier()
+        # Update self energy via Dyson: Σ = G_0^{-1} - <G>^{-1}
+        sigma << g0_inv - inverse(gc)
+
+        # Apply mixing
+        _apply_mixing(sigma_old, sigma, mixing)
+
+        # Optimize the chemical potential to match the target occupation
+        if verbosity > 0:
+            if mpi.is_master_node():
+                mpi.report("Optimizing chemical potential...")
+        mu = optimize_occ(ht, sigma, target_occ=target_occ, mu0=mu, eta=eta, verbosity=0)
+        if verbosity > 0:
+            if mpi.is_master_node():
+                g = G_coherent(ht, sigma, mu=mu, eta=eta)
+                occ = g.total_density().real
+                mpi.report(f"Optimized chemical potential: {mu:.10f} (Occupation: {occ:.10f})")
+
+        # Check for convergence
+        diff = _max_difference(sigma_old, sigma, norm_temp=True, relative=False)
+        if verbosity > 1:
+            if mpi.is_master_node():
+                mpi.report(f"CPA iteration {it + 1}: Error={diff:.10f}")
+
+        if diff <= tol:
+            if verbosity > 0:
+                if mpi.is_master_node():
+                    mpi.report(f"CPA converged in {it + 1} iterations (Error: {diff:.10f})")
+            break
+        sigma_old = sigma.copy()
+        mpi.barrier()
+    else:
+        if verbosity > 0:
+            if mpi.is_master_node():
+                mpi.report(f"CPA did not converge after {maxiter} iterations")
+    if mpi.is_master_node():
+        mpi.report("")
+
+    sigma_out = sigma.copy()
+    sigma_out.name = name
+    return mu, sigma_out
+
+
+def solve_cpa_fxocc(
+    ht: Union[Ht, SumkDiscreteFromLattice],
+    sigma: GfLike,
+    conc: Sequence[float],
+    eps: Onsite,
+    target_occ: float,
+    mu0: float = 0.0,
+    eta: float = 0.0,
+    name: str = "Σ_cpa",
+    method: str = "iter",
+    **kwds,
+) -> Tuple[float, GfLike]:
+    """Determine the CPA self-energy of the CPA equations.
+
+    Parameters
+    ----------
+    ht : Ht or SumkDiscreteFromLattice
+        Lattice Hilbert transformation or discrete k-sum used to calculate the coherent Green's
+        function.
+    sigma : Gf or BlockGf
+        Starting guess for CPA self-energy. Can be a single or spin resolved Gf.
+        The self energy will be overwritten with the result for the CPA self-energy.
+    conc : (N_cmpt, ) float array_like
+        Concentration of the different components used for the average.
+    eps : (N_cmpt, [N_spin], ...) complex np.ndarray or BlockGf
+        On-site energy of the components. This can also include a local frequency
+        dependent self-energy of the component sites.
+    target_occ : float
+        The target occupation to optimize for.
+    mu0 : float, optional
+        The initial chemical potential, defaults to 0.0.
+    eta : float, optional
+        Complex broadening, should be only used for real frequency Greens functions.
+    name : str, optional
+        The name of the resulting Gf object returned as self-energy.
+    method : {"iter"} str, optional
+        The method to use for solving the CPA root equation. Can be either 'iter' for
+        the iterative algorithm or 'root' for the optimization algorithm.
+    **kwds
+        Additional keyword arguments passed to the specif solve method.
+
+    Returns
+    -------
+    mu : float
+        The optimized chemical potential that gives the target occupation.
+    sigma : Gf or BlockGf
+        The self-consistent CPA self energy `Σ_cpa`. Same as thew input self energy after
+        calling the method.
+    """
+    supported = {"iter": solve_iter_fxocc}
+
+    kwds.update(
+        ht=ht, sigma=sigma, eps=eps, conc=conc, target_occ=target_occ, mu0=mu0, eta=eta, name=name
+    )
     try:
         func = supported[method.lower()]
         return func(**kwds)

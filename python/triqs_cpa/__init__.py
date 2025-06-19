@@ -24,4 +24,4 @@
 from .utility import GfLike, GfStruct, MeshLike, blockgf, toarray
 from .hilbert import Ht, HilbertTransform, HilbertTransformSumK, SemiCircularHt
 from .gf import initialize_G_cmpt, initalize_onsite_energy, G_coherent, G_component
-from .cpa import solve_vca, solve_ata, solve_cpa
+from .cpa import solve_vca, solve_ata, solve_cpa, solve_cpa_fxocc
