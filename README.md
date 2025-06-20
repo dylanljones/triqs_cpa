@@ -74,9 +74,9 @@ conc = [0.2, 0.8]                      # Concentrations of the two components
 eps = [-0.4, +0.4]                     # On-size energies of the two components
 ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
 
-# Set up Gf and self energy
-gf = Gf(mesh=mesh, target_shape=[1, 1])
-sigma = gf.copy()
+# Set up self energy
+sigma = Gf(mesh=mesh, target_shape=[1, 1])
+
 # Solve the CPA equations
 solve_cpa(ht, sigma, conc, eps, eta=eta)
 
@@ -106,9 +106,9 @@ conc = [0.2, 0.8]                      # Concentrations of the two components
 eps = [-0.4, +0.4]                     # On-size energies of the two components
 ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
 
-# Set up Gf and self energy
-gf = blockgf(mesh, gf_struct=gf_struct)
-sigma = gf.copy()
+# Set up self energy
+sigma = blockgf(mesh, gf_struct=gf_struct)
+
 # Solve the CPA equations
 solve_cpa(ht, sigma, conc, eps, eta=eta)
 
@@ -121,7 +121,7 @@ oplot(g_coh["dn"].imag)
 plt.show()
 ```
 
-k-summation example:
+k-sum example:
 ```python
 from triqs.gf import MeshReFreq
 from triqs.lattice.tight_binding import TBLattice
@@ -132,12 +132,14 @@ from triqs.plot.mpl_interface import oplot, plt
 from triqs_cpa import G_coherent, solve_cpa, blockgf
 
 # Parameters
-mesh = MeshReFreq(-3, +3, 2001)  # Frequency mesh
-gf_struct = [("up", 1), ("dn", 1)]    # Structure of the Green's function
-eta = 1e-2  # Broadening for the Green's function
-conc = [0.2, 0.8]  # Concentrations of the two components
-eps = [-0.4, +0.4]  # On-size energies of the two components
-t = 0.5  # Hopping parameter
+mesh = MeshReFreq(-3, +3, 2001)     # Frequency mesh
+gf_struct = [("up", 1), ("dn", 1)]  # Structure of the Green's function
+eta = 1e-2                          # Broadening for the Green's function
+conc = [0.2, 0.8]                   # Concentrations of the two components
+eps = [-0.4, +0.4]                  # On-size energies of the two components
+t = 0.5                             # Hopping parameter
+
+# Set up the tight-binding lattice and k-sum
 tb = TBLattice(
     units=[
         (1, 0, 0),  # basis vector in the x-direction
@@ -151,9 +153,9 @@ tb = TBLattice(
     })
 sk = SumkDiscreteFromLattice(lattice=tb, n_points=256)
 
-# Set up Gf and self energy
-gf = blockgf(mesh, gf_struct=gf_struct)
-sigma = gf.copy()
+# Set up self energy
+sigma = blockgf(mesh, gf_struct=gf_struct)
+
 # Solve the CPA equations
 solve_cpa(sk, sigma, conc, eps, eta=eta, verbosity=2)
 
