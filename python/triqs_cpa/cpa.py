@@ -9,8 +9,9 @@ import numpy as np
 from scipy import optimize
 from triqs.gf import BlockGf, Gf, MeshImFreq, MeshImTime, MeshReFreq, inverse
 from triqs.sumk import SumkDiscreteFromLattice
-from triqs.utility import dichotomy, mpi
+from triqs.utility import mpi
 
+from .dichotomy import dichotomy
 from .gf import G_coherent, GfLike, Onsite, _validate
 from .hilbert import Ht
 from .utility import fill_gf, toarray
@@ -661,7 +662,7 @@ def optimize_occ(
     delta_mu: float = 0.1,
     tol: float = 1e-4,
     max_iter: int = 100,
-    verbosity: int = 1,
+    verbosity: int = 0,
 ) -> float:
     """Optimize the chemical potential to match a target occupation of the coherent Gf."""
 
@@ -670,7 +671,7 @@ def optimize_occ(
         return _g_opt.total_density().real
 
     # Find the chemical potential that gives n ≈ n_target
-    mu, n_final = dichotomy.dichotomy(
+    mu, n_final = dichotomy(
         function=_root_eq,
         x_init=float(mu0),
         y_value=target_occ,
@@ -757,7 +758,7 @@ def solve_iter_fxocc(
             sigma.data[:] = eps[0]
 
         # Optimize the chemical potential to match the target occupation
-        mu = optimize_occ(ht, sigma, target_occ=target_occ, mu0=mu, eta=eta)
+        mu = optimize_occ(ht, sigma, target_occ=target_occ, mu0=mu, eta=eta, verbosity=0)
 
         return mu, sigma
 
@@ -805,11 +806,8 @@ def solve_iter_fxocc(
         _apply_mixing(sigma_old, sigma, mixing)
 
         # Optimize the chemical potential to match the target occupation
-        if verbosity > 0:
-            if mpi.is_master_node():
-                mpi.report("Optimizing chemical potential...")
         mu = optimize_occ(ht, sigma, target_occ=target_occ, mu0=mu, eta=eta, verbosity=0)
-        if verbosity > 0:
+        if verbosity > 1:
             if mpi.is_master_node():
                 g = G_coherent(ht, sigma, mu=mu, eta=eta)
                 occ = g.total_density().real
