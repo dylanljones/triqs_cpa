@@ -8,7 +8,6 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
-from mpmath import fp
 from triqs.gf import Gf, MeshImFreq, MeshReFreq
 from triqs.gf.descriptors import Base
 from triqs.lattice.tight_binding import TBLattice
@@ -20,8 +19,6 @@ Kwargs = Optional[Dict[str, Any]]
 Func = Callable[[Gf], Gf]
 
 Onsite = Union[float, Sequence[float], Gf]
-
-_ellipk_z = np.frompyfunc(partial(fp.ellipf, np.pi / 2), 1, 1)
 
 
 def _signed_sqrt(z: np.ndarray) -> np.ndarray:
@@ -35,6 +32,9 @@ def _u_ellipk(z: np.ndarray) -> np.ndarray:
 
     Wraps the `mpmath` implementation `mpmath.fp.ellipf` using `numpy.frompyfunc`.
     """
+    from mpmath import fp
+
+    _ellipk_z = np.frompyfunc(partial(fp.ellipf, np.pi / 2), 1, 1)
     ellipk = _ellipk_z(np.asarray(z, dtype=complex))
     try:
         ellipk = ellipk.astype(complex)
