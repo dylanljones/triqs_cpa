@@ -409,9 +409,9 @@ def _sigma_root(
         The CPA self-energy. Can be a single or spin resolved Gf.
         The self energy will be overwritten with the result for the CPA self-energy.
         Only used to determine the shape of the output!
-    conc : (..., N_cmpt) float array_like
+    conc : (N_cmpt) float array_like
         Concentration of the different components used for the average.
-    eps : (..., N_cmpt) float or complex np.ndarray
+    eps : (N_cmpt, ...) float or complex np.ndarray
         On-site energy of the components. This can also include a local frequency
         dependent self-energy of the component sites.
     mu : float
@@ -430,18 +430,24 @@ def _sigma_root(
     gf_0 = G_coherent(ht, sigma_x, mu=mu, eta=eta)  # Coherent Green's function
     gf_0_arr = toarray(gf_0)
 
-    if isinstance(sigma, BlockGf):
-        items = list()
-        for i in range(len(conc)):
-            eps_eff_i = eps[:, i] - x[i, ..., np.newaxis]
-            items.append(eps_eff_i)
-        eps_eff = np.array(items)
-    else:
-        eps_eff = eps - x[..., np.newaxis]
+    # Broadcast eps to x shape
+    if eps.ndim < x.ndim:
+        indices = np.array([len(conc)] + list(x.shape))
+        # Set last three dimensions to 1
+        indices[-3:] = 1
+        eps = eps.reshape(indices)
+    eps_eff = eps - x[np.newaxis, ...]
 
-    ti = eps_eff / (1 - eps_eff * gf_0_arr[..., np.newaxis])  # T-matrix elements
-    tmat = np.sum(conc * ti, axis=-1)  # Average T-matrix
-    root = tmat / (1 + tmat * gf_0_arr)  # Self energy root
+    # T-matrix elements
+    ti = eps_eff / (1 - eps_eff * gf_0_arr[np.newaxis, ...])
+    # Reshape for multiplication along first axis (components)
+    dim_array = np.ones((1, ti.ndim), int).ravel()
+    dim_array[0] = -1
+    conc_reshaped = conc.reshape(dim_array)
+    # Average T-matrix
+    tmat = np.sum(ti * conc_reshaped, axis=0)
+    # Self energy root
+    root = tmat / (1 + tmat * gf_0_arr)
     return root
 
 
