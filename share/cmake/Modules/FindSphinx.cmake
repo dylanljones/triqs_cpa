@@ -3,11 +3,11 @@
 #      (See accompanying file LICENSE_1_0.txt or copy at
 #          http://www.boost.org/LICENSE_1_0.txt)
 
-# This module looks for sphinx documentation tool 
+# This module looks for sphinx documentation tool
 # and define a function that prepares the Makefile for sphinx-build
 
 find_program(SPHINXBUILD_EXECUTABLE
- NAMES sphinx-build 
+ NAMES sphinx-build
  PATHS /usr/bin /opt/local/bin /usr/local/bin #opt/sphinx-doc/bin
  PATH_SUFFIXES  bin
  )
