@@ -20,7 +20,7 @@ if(NOT IS_SUBPROJECT
       ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}vars.sh
     DESTINATION share/${PROJECT_NAME}
   )
- 
+
   message(STATUS "*********************************************************************************")
   message(STATUS "* Custom install Location. Use:                                                  ")
   message(STATUS "*                                                                                ")
