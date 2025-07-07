@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-import sys
 import os
-import glob
+import sys
 
 if len(sys.argv) != 2:
     print("Please pass the application name")
@@ -12,8 +11,10 @@ app_name = str(sys.argv[1]).lower()
 capital_name = app_name.upper()
 
 # Move app4triqs directories if necessary
-if os.path.isdir("c++/app4triqs"): os.rename("c++/app4triqs", "c++/" + app_name)
-if os.path.isdir("python/app4triqs"): os.rename("python/app4triqs", "python/" + app_name)
+if os.path.isdir("c++/app4triqs"):
+    os.rename("c++/app4triqs", "c++/" + app_name)
+if os.path.isdir("python/app4triqs"):
+    os.rename("python/app4triqs", "python/" + app_name)
 
 # Ignore these files
 ignore_lst = [".git/", "replace_and_rename.py", "squash_history.sh"]
@@ -22,11 +23,10 @@ ignore_lst = [".git/", "replace_and_rename.py", "squash_history.sh"]
 app4triqs_root = os.path.abspath(os.path.dirname(__file__) + "/..")
 
 # Blacklisted file-formats
-fmt_blacklist = ['.png', '.h5', '.jpg', '.ico']
+fmt_blacklist = [".png", ".h5", ".jpg", ".ico"]
 
 # Recurse over all subdirectories and files
 for root, dirs, files in os.walk(app4triqs_root):
-
     for fname in files:
         fpath = os.path.join(root, fname)
 
@@ -34,7 +34,8 @@ for root, dirs, files in os.walk(app4triqs_root):
             continue
 
         # Ignore certain files / directories
-        if any(it in fpath for it in ignore_lst): continue
+        if any(it in fpath for it in ignore_lst):
+            continue
 
         if os.path.isfile(fpath):
             # Rename files containing app4triqs in their filename
@@ -44,8 +45,8 @@ for root, dirs, files in os.walk(app4triqs_root):
                 fpath = new_fpath
 
             # Replace app4triqs and APP4TRIQS in all files
-            with open(fpath, 'r') as f:
+            with open(fpath, "r") as f:
                 s = f.read()
             if "app4triqs" in s or "APP4TRIQS" in s:
-                with open(fpath, 'w') as f:
+                with open(fpath, "w") as f:
                     f.write(s.replace("app4triqs", app_name).replace("APP4TRIQS", capital_name))

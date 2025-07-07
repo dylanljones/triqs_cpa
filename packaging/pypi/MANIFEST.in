@@ -10,4 +10,4 @@ prune paper
 prune bin
 prune build
 
-global-exclude .clang-format .clang-tidy .dockerignore .gitignore CMakeLists.txt Jenkinsfile 
+global-exclude .clang-format .clang-tidy .dockerignore .gitignore CMakeLists.txt Jenkinsfile
