@@ -68,10 +68,10 @@ from triqs.plot.mpl_interface import oplot, plt
 from triqs_cpa import SemiCircularHt, G_component, G_coherent, solve_cpa
 
 # Parameters
-mesh = MeshReFreq(-2, +2, 2001)        # Frequency mesh
-eta = 1e-2                             # Broadening for the Green's function
-conc = [0.2, 0.8]                      # Concentrations of the two components
-eps = [-0.4, +0.4]                     # On-size energies of the two components
+mesh = MeshReFreq(-2, +2, 2001)  # Frequency mesh
+eta = 1e-2  # Broadening for the Green's function
+conc = [0.2, 0.8]  # Concentrations of the two components
+eps = [-0.4, +0.4]  # On-size energies of the two components
 ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
 
 # Set up self energy
@@ -89,7 +89,6 @@ oplot(-g_coh.imag, color="k", label="$G$")
 oplot(-g_cmpt["A"].imag, label="$G_A$")
 oplot(-g_cmpt["B"].imag, label="$G_B$")
 plt.show()
-
 ```
 
 BlockGf example:
@@ -98,12 +97,13 @@ from triqs.gf import MeshReFreq
 from triqs.plot.mpl_interface import oplot, plt
 
 from triqs_cpa import SemiCircularHt, G_coherent, solve_cpa, blockgf
+
 # Parameters
-mesh = MeshReFreq(-2, +2, 2001)        # Frequency mesh
-gf_struct = [("up", 1), ("dn", 1)]     # Structure of the Green's function
-eta = 1e-2                             # Broadening for the Green's function
-conc = [0.2, 0.8]                      # Concentrations of the two components
-eps = [-0.4, +0.4]                     # On-size energies of the two components
+mesh = MeshReFreq(-2, +2, 2001)  # Frequency mesh
+gf_struct = [("up", 1), ("dn", 1)]  # Structure of the Green's function
+eta = 1e-2  # Broadening for the Green's function
+conc = [0.2, 0.8]  # Concentrations of the two components
+eps = [-0.4, +0.4]  # On-size energies of the two components
 ht = SemiCircularHt(half_bandwidth=1)  # Semi-circular Hilbert transform
 
 # Set up self energy
@@ -132,12 +132,12 @@ from triqs.plot.mpl_interface import oplot, plt
 from triqs_cpa import G_coherent, solve_cpa, blockgf
 
 # Parameters
-mesh = MeshReFreq(-3, +3, 2001)     # Frequency mesh
+mesh = MeshReFreq(-3, +3, 2001)  # Frequency mesh
 gf_struct = [("up", 1), ("dn", 1)]  # Structure of the Green's function
-eta = 1e-2                          # Broadening for the Green's function
-conc = [0.2, 0.8]                   # Concentrations of the two components
-eps = [-0.4, +0.4]                  # On-size energies of the two components
-t = 0.5                             # Hopping parameter
+eta = 1e-2  # Broadening for the Green's function
+conc = [0.2, 0.8]  # Concentrations of the two components
+eps = [-0.4, +0.4]  # On-size energies of the two components
+t = 0.5  # Hopping parameter
 
 # Set up the tight-binding lattice and k-sum
 tb = TBLattice(
@@ -150,7 +150,8 @@ tb = TBLattice(
         (-1, 0): [[-t]],  # hopping in the -x direction
         (0, +1): [[-t]],  # hopping in the +y direction
         (0, -1): [[-t]],  # hopping in the -y direction
-    })
+    },
+)
 sk = SumkDiscreteFromLattice(lattice=tb, n_points=256)
 
 # Set up self energy
